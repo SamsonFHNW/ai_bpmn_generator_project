@@ -1,0 +1,143 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "BPMN 2.0 Process Schema",
+  "type": "object",
+  "properties": {
+    "title": { "type": "string" },
+    "pools": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "lanes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": { "type": "string" },
+                "tasks": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": { "type": "string" },
+                      "type": { "type": "string", "enum": ["User", "Service", "Manual"] },
+                      "assignee": { "type": "string" }
+                    },
+                    "required": ["name", "type"]
+                  }
+                },
+                "subprocesses": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": { "type": "string" },
+                      "tasks": { "type": "array" }
+                    },
+                    "required": ["name"]
+                  }
+                }
+              },
+              "required": ["name", "tasks"]
+            }
+          }
+        },
+        "required": ["name", "lanes"]
+      }
+    },
+    "gateways": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string", "enum": ["Exclusive", "Parallel", "Inclusive"] },
+          "name": { "type": "string" },
+          "reasoning": { "type": "string" },
+          "yes_branch": { "type": "array", "items": { "type": "string" } },
+          "no_branch": { "type": "array", "items": { "type": "string" } }
+        },
+        "required": ["type", "name"]
+      }
+    },
+    "events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string", "enum": ["Start", "End", "Intermediate"] },
+          "name": { "type": "string" },
+          "subtype": { "type": "string" }
+        },
+        "required": ["type", "name"]
+      }
+    },
+    "flows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string", "enum": ["Sequence", "Message"] },
+          "source": { "type": "string" },
+          "target": { "type": "string" }
+        },
+        "required": ["type", "source", "target"]
+      }
+    },
+    "message_flows": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "source": { "type": "string" },
+          "target": { "type": "string" },
+          "label": { "type": "string" }
+        },
+        "required": ["source", "target"]
+      }
+    },
+    "message_events": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "type": { "type": "string", "enum": ["Start", "End", "Intermediate"] },
+          "subtype": { "type": "string", "enum": ["message"] },
+          "name": { "type": "string" },
+          "pool": { "type": "string" },
+          "lane": { "type": "string" }
+        },
+        "required": ["type", "subtype", "name"]
+      }
+    },
+    "annotations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string" },
+          "attached_to": { "type": "string" }
+        },
+        "required": ["text", "attached_to"]
+      }
+    },
+    "data_objects": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "type": { "type": "string", "enum": ["input", "output"] },
+          "attached_to": { "type": "string" }
+        },
+        "required": ["name", "type", "attached_to"]
+      }
+    },
+    "_colors": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    }
+  },
+  "required": ["title", "pools", "gateways", "events", "flows"]
+}

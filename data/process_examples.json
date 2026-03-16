@@ -1,0 +1,20 @@
+[
+  {
+    "description": "Customer submits order. Sales reviews. If approved, warehouse ships. Else, notify customer.",
+    "expected_bpmn": {
+      "pools": [{"name": "Sales", "lanes": [{"name": "Sales Rep", "tasks": [{"name": "Review Order", "type": "User", "assignee": "Sales Rep"}]}]}],
+      "gateways": [{"type": "Exclusive", "reasoning": "Approval required"}],
+      "events": [{"type": "Start", "name": "Order Submitted"}, {"type": "End", "name": "Order Completed"}],
+      "flows": [{"type": "Sequence", "source": "Order Submitted", "target": "Review Order"}, {"type": "Sequence", "source": "Review Order", "target": "Order Completed"}]
+    }
+  },
+  {
+    "description": "System receives payment. If payment is valid, accounting records transaction and warehouse ships. Otherwise, notify customer.",
+    "expected_bpmn": {
+      "pools": [{"name": "Accounting", "lanes": [{"name": "Accountant", "tasks": [{"name": "Record Transaction", "type": "Manual", "assignee": "Accountant"}]}]}, {"name": "Warehouse", "lanes": [{"name": "Warehouse Staff", "tasks": [{"name": "Ship Goods", "type": "Manual", "assignee": "Warehouse Staff"}]}]}],
+      "gateways": [{"type": "Exclusive", "reasoning": "Payment validation"}],
+      "events": [{"type": "Start", "name": "Payment Received"}, {"type": "End", "name": "Transaction Complete"}],
+      "flows": [{"type": "Sequence", "source": "Payment Received", "target": "Record Transaction"}, {"type": "Sequence", "source": "Record Transaction", "target": "Transaction Complete"}]
+    }
+  }
+]

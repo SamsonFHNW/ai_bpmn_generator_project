@@ -1,22 +1,39 @@
 # Python
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
 
 # Virtual environments
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.env
 .venv/
 venv/
-bpmn_exports/
-data/
-docs/
+ENV/
+
+# Environment variables
+.env
+
+# IDEs
 .vscode/
 .idea/
+*.swp
+*.swo
 
-# Misc
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
 *.log
+server.log
+
+# Test/Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local exports (can be regenerated)
+bpmn_exports/
