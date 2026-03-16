@@ -2,18 +2,6 @@
 
 Pipeline position:
     **LLM (translate)** → APIs → ML → Engine
-
-Translation modes
-────────────────
-1. Anthropic Claude (claude-haiku-4-5-20251001) — when ANTHROPIC_API_KEY is set.
-2. Enhanced Regex fallback — always available, used on any LLM failure.
-
-LLM conventions enforced
-───────────────────────
-Verb-Noun naming   : "Verify Invoice", not "Invoice verification"
-Pools vs Lanes     : Pool = separate org; Lane = internal role within one org
-Flow types         : Sequence Flow (within pool) vs Message Flow (cross-pool)
-Message events     : Start/End events with subtype="message" for cross-pool comms
 """
 import json
 import re
@@ -24,7 +12,7 @@ _API_KEY: str = config.ANTHROPIC_API_KEY
 
 
 def translate_to_bpmn_schema(input_text: str) -> dict[str, Any] | None:
-    """LLM Layer entry point - translate natural language to BPMN JSON."""
+    """LLM Layer entry point."""
     if _API_KEY:
         try:
             result = _llm_translate(input_text)
@@ -32,13 +20,12 @@ def translate_to_bpmn_schema(input_text: str) -> dict[str, Any] | None:
                 return result
         except Exception as e:
             print(f"LLM translation failed: {e}")
-            pass
 
     return _regex_translate(input_text)
 
 
 def _validate_bpmn_output(bpmn_json: dict) -> bool:
-    """Validate BPMN JSON has required structure and valid references."""
+    """Validate BPMN JSON has required structure."""
     if "events" not in bpmn_json or "pools" not in bpmn_json:
         return False
     
@@ -140,186 +127,258 @@ def _llm_translate(input_text: str) -> dict[str, Any] | None:
     return result
 
 
-_STRIP_ACTOR = re.compile(
-    r"^(?:the\s+)?(?:system|customer|user|warehouse|manager|staff|employee)\s+",
-    flags=re.I,
-)
+# Common action words for task extraction
+ACTION_VERBS = [
+    'place', 'submit', 'check', 'verify', 'validate', 'process', 'approve', 
+    'reject', 'ship', 'deliver', 'create', 'send', 'notify', 'update',
+    'calculate', 'generate', 'fetch', 'retrieve', 'review', 'assess',
+    'complete', 'finish', 'close', 'archive', 'prepare', 'dispatch',
+    'confirm', 'cancel', 'return', 'refund', 'inspect', 'pack'
+]
+
+# Words to strip from task names
+STOP_WORDS = {'the', 'a', 'an', 'system', 'user', 'customer', 'employee', 'manager', 'it', 'then'}
 
 
-def _split_tasks(text: str) -> list[str]:
-    """Split comma/and-separated actions into Verb-Noun tasks."""
-    raw = [t.strip() for t in re.split(r",\s*|\s+and\s+", text) if t.strip()]
-    result = []
-    for t in raw:
-        cleaned = _STRIP_ACTOR.sub("", t).strip()
-        words = cleaned.split()
-        result.append(" ".join(words[:4]).capitalize())
-    return result or ["Proceed"]
+def _extract_tasks(text: str) -> list[str]:
+    """Extract verb-noun task patterns from text."""
+    tasks = []
+    text_lower = text.lower()
+    
+    # Split by common separators
+    segments = re.split(r',| and | then |;', text)
+    
+    for seg in segments:
+        seg = seg.strip()
+        if not seg or len(seg) < 3:
+            continue
+            
+        words = seg.split()
+        cleaned_words = [w.rstrip('.,!?;:') for w in words if w.lower() not in STOP_WORDS]
+        
+        # Look for action verb as first word
+        if cleaned_words:
+            first_word = cleaned_words[0].lower()
+            if first_word in ACTION_VERBS and len(cleaned_words) >= 2:
+                # Verb + Object pattern
+                noun = cleaned_words[1].capitalize()
+                task_name = f"{first_word.capitalize()} {noun}"
+                tasks.append(task_name)
+            elif first_word.capitalize() not in STOP_WORDS:
+                # Use first meaningful word as task
+                task_name = first_word.capitalize()
+                if len(cleaned_words) > 1:
+                    task_name += " " + cleaned_words[1].capitalize()
+                tasks.append(task_name)
+    
+    # Remove duplicates while preserving order
+    seen = set()
+    unique_tasks = []
+    for t in tasks:
+        if t.lower() not in seen:
+            seen.add(t.lower())
+            unique_tasks.append(t)
+    
+    return unique_tasks[:5]  # Max 5 tasks per segment
 
 
 def _infer_task_type(task_name: str) -> str:
-    """Infer task type from common patterns."""
+    """Infer task type from task name."""
     task_lower = task_name.lower()
     
-    service_patterns = ['check', 'validate', 'verify', 'process', 'send', 'notify',
-        'generate', 'calculate', 'update', 'create', 'approve', 'reject', 'fetch']
-    manual_patterns = ['ship', 'deliver', 'assemble', 'inspect', 'package', 'handle', 'move']
-    
-    for pattern in service_patterns:
+    for pattern in ['check', 'validate', 'verify', 'process', 'send', 'notify', 'generate', 
+                   'calculate', 'update', 'create', 'approve', 'reject', 'fetch', 'confirm']:
         if pattern in task_lower:
             return "Service"
-    for pattern in manual_patterns:
+    
+    for pattern in ['ship', 'deliver', 'assemble', 'inspect', 'package', 'handle', 
+                   'move', 'load', 'pick', 'pack', 'dispatch']:
         if pattern in task_lower:
             return "Manual"
+    
     return "User"
 
 
-def _detect_organizations(text: str) -> dict:
-    """Detect organizations in the description."""
-    org_patterns = {
-        'customer': r'\b(customer|client|buyer)\b',
-        'vendor': r'\b(vendor|supplier)\b',
-        'warehouse': r'\b(warehouse|distribution)\b',
-    }
-    found = {}
-    text_lower = text.lower()
-    for org, pattern in org_patterns.items():
-        if re.search(pattern, text_lower):
-            found[org] = True
-    return found
-
-
 def _regex_translate(input_text: str) -> dict[str, Any]:
-    """Enhanced regex-based fallback parser."""
+    """Improved regex-based parser with better task extraction."""
 
+    # Clean the text
     clean = re.sub(r"\s+", " ", input_text.strip())
     parts = [s.strip() for s in re.split(r"[.!?]+", clean) if s.strip()]
 
     title = parts[0].capitalize() if parts else "Process"
-    tasks, gateways, colors = [], [], {}
-    pools, lanes = {}, {}
-    message_flows = []
-
-    detected_orgs = _detect_organizations(input_text)
-    pool_names, lane_names = set(), set()
+    all_tasks = []
+    gateways = []
     
-    pool_names.add("Company")
-    lanes["Company"] = {"name": "Company", "tasks": []}
+    # Detect organizations
+    text_lower = input_text.lower()
+    has_customer = any(kw in text_lower for kw in ['customer', 'client', 'buyer', 'user'])
+    has_vendor = any(kw in text_lower for kw in ['vendor', 'supplier'])
+    has_warehouse = any(kw in text_lower for kw in ['warehouse', 'distribution'])
+
+    # Build pools
+    pools = {}
+    pools["Company"] = {"name": "Company", "lanes": {"Operations": {"name": "Operations", "tasks": []}}}
     
-    for org in detected_orgs:
-        pool_names.add(org.capitalize())
-        lanes[org.capitalize()] = {"name": org.capitalize(), "tasks": []}
+    if has_customer:
+        pools["Customer"] = {"name": "Customer", "lanes": {"Customer": {"name": "Customer", "tasks": []}}}
+    
+    if has_vendor:
+        pools["Vendor"] = {"name": "Vendor", "lanes": {"Vendor": {"name": "Vendor", "tasks": []}}}
+    
+    if has_warehouse:
+        pools["Warehouse"] = {"name": "Warehouse", "lanes": {"Warehouse": {"name": "Warehouse", "tasks": []}}}
 
-    current_lane = "Company"
-
-    for s in parts[1:]:
-        if not s.strip():
+    # Find and process conditional statements (if/otherwise)
+    # Pattern: "If [condition], [yes tasks]. Otherwise [no tasks]."
+    conditional_pattern = r'if\s+(.+?)(?:\s*,\s*|\s+then\s+)(.+?)(?:\.?\s*otherwise\.?\s*(.+?))?(?:\.|$)'
+    conditional_match = re.search(conditional_pattern, input_text, re.IGNORECASE | re.DOTALL)
+    
+    if conditional_match:
+        condition = conditional_match.group(1).strip()
+        yes_text = conditional_match.group(2).strip()
+        no_text = conditional_match.group(3).strip() if conditional_match.group(3) else ""
+        
+        # Extract tasks from yes branch
+        yes_tasks = _extract_tasks(yes_text)
+        no_tasks = _extract_tasks(no_text) if no_text else []
+        
+        # Create gateway
+        gw_name = condition.split()[0].capitalize() + "?"
+        if len(condition.split()) > 1:
+            gw_name = " ".join(condition.split()[:2]).rstrip(',') + "?"
+        
+        gateway = {
+            "type": "Exclusive",
+            "name": gw_name,
+            "reasoning": f"Decision: {condition[:50]}",
+            "yes_branch": yes_tasks if yes_tasks else ["Approve"],
+            "no_branch": no_tasks if no_tasks else ["Reject"]
+        }
+        gateways.append(gateway)
+        
+        # Add branch tasks
+        for t in gateway["yes_branch"] + gateway["no_branch"]:
+            task_type = _infer_task_type(t)
+            all_tasks.append({"name": t, "type": task_type, "pool": "Company", "lane": "Operations"})
+    
+    # Extract regular tasks from non-conditional sentences
+    for i, s in enumerate(parts):
+        s = s.strip()
+        if not s:
+            continue
+        
+        # Skip if this is part of a conditional we already processed
+        if re.search(r'\bif\b', s, re.IGNORECASE) and conditional_match:
+            continue
+        if re.search(r'\botherwise\b', s, re.IGNORECASE) and conditional_match:
             continue
             
-        m_color = re.match(r"color:(\w+)=(#[0-9a-fA-F]{6})", s)
-        if m_color:
-            colors[m_color.group(1)] = m_color.group(2)
+        # Skip very short segments
+        if len(s) < 5:
             continue
-
-        if re.match(r"otherwise\b", s, flags=re.I) and gateways:
-            action = re.sub(r"^otherwise[\s,]+", "", s, flags=re.I).strip()
-            no_branch = _split_tasks(action)
-            if no_branch:
-                gateways[-1]["no_branch"] = no_branch
-            continue
-
-        if re.match(r"(if|whether|depending on)\b", s.strip(), flags=re.I):
-            dlow = s.lower()
             
-            if any(w in dlow for w in ("parallel", "simultaneous", "in parallel")):
-                gw_type = "Parallel"
-            elif any(w in dlow for w in ("either", "any", "one or more")):
-                gw_type = "Inclusive"
-            else:
-                gw_type = "Exclusive"
-
-            m_cond = re.search(r"\b(?:if|whether)\s+(.+?)(?:\s+then|,\s*|$)", s, flags=re.I)
-            condition = m_cond.group(1).strip() if m_cond else s
-            
-            m_yes = re.search(r"\b(?:then|do)\s+(.+?)(?:\s+else|\s+otherwise|$)", s, flags=re.I)
-            m_no = re.search(r"\b(?:else|otherwise)\s+(.+?)$", s, flags=re.I)
-            
-            yes_branch = _split_tasks(m_yes.group(1)) if m_yes else ["Approve"]
-            no_branch = _split_tasks(m_no.group(1)) if m_no else ["Reject"]
-            
-            label = " ".join(condition.split()[:4]).capitalize().rstrip(",") + "?"
-            
-            gateways.append({
-                "type": gw_type,
-                "name": label,
-                "reasoning": f"Decision: '{s[:50]}'",
-                "yes_branch": yes_branch,
-                "no_branch": no_branch,
-            })
-            continue
-
-        sub_tasks = re.split(r"\band\b|\bthen\b|,", s)
-        for sub in sub_tasks:
-            cleaned_s = _STRIP_ACTOR.sub("", sub).strip()
-            if not cleaned_s:
+        tasks = _extract_tasks(s)
+        
+        for task_name in tasks:
+            # Skip if already added from gateway
+            existing_names = [t["name"] for t in all_tasks]
+            if task_name in existing_names:
                 continue
-            words = cleaned_s.split()
-            task_name = " ".join(words[:4]).capitalize() or sub.capitalize()
-            task_type = _infer_task_type(task_name)
             
-            lanes[current_lane]["tasks"].append({
-                "name": task_name, "type": task_type, "assignee": current_lane
+            # Determine pool/lane based on context
+            task_lower = task_name.lower()
+            if has_warehouse and any(kw in task_lower for kw in ['ship', 'pack', 'pick', 'deliver', 'dispatch']):
+                pool, lane = "Warehouse", "Warehouse"
+            elif has_customer and i == 0:
+                pool, lane = "Customer", "Customer"
+            else:
+                pool, lane = "Company", "Operations"
+            
+            all_tasks.append({
+                "name": task_name, 
+                "type": _infer_task_type(task_name), 
+                "pool": pool, 
+                "lane": lane
             })
-            tasks.append({"name": task_name, "type": task_type, "assignee": current_lane})
 
-    if not tasks:
-        lanes["Company"]["tasks"].append({"name": "Process Request", "type": "User", "assignee": "Company"})
-        tasks = [{"name": "Process Request", "type": "User", "assignee": "Company"}]
+    # Ensure at least one task
+    if not all_tasks:
+        all_tasks.append({"name": "Process Request", "type": "User", "pool": "Company", "lane": "Operations"})
     
+    # Ensure gateway exists
     if not gateways:
-        gateways = [{"type": "Exclusive", "name": "Decision?", "reasoning": "Default",
-            "yes_branch": ["Approve"], "no_branch": ["Reject"]}]
+        gateways.append({
+            "type": "Exclusive",
+            "name": "Approved?",
+            "reasoning": "Default decision",
+            "yes_branch": ["Approve"],
+            "no_branch": ["Reject"]
+        })
+        all_tasks.append({"name": "Approve", "type": "Service", "pool": "Company", "lane": "Operations"})
+        all_tasks.append({"name": "Reject", "type": "Service", "pool": "Company", "lane": "Operations"})
 
+    # Assign tasks to pools
+    for task in all_tasks:
+        pool_name = task["pool"]
+        lane_name = task["lane"]
+        
+        if pool_name in pools:
+            if lane_name not in pools[pool_name]["lanes"]:
+                pools[pool_name]["lanes"][lane_name] = {"name": lane_name, "tasks": []}
+            pools[pool_name]["lanes"][lane_name]["tasks"].append({
+                "name": task["name"],
+                "type": task["type"],
+                "assignee": lane_name
+            })
+
+    # Convert lanes dict to list
+    for pool_name in pools:
+        pools[pool_name]["lanes"] = list(pools[pool_name]["lanes"].values())
+
+    # Build flows
     gw = gateways[0]
-    start_name, end_name = title, "End"
+    start_name = title
+    end_name = "End"
+
     flows = []
     
-    first_task = lanes[current_lane]["tasks"][0]["name"] if lanes[current_lane]["tasks"] else None
-    if first_task:
-        flows.append({"type": "Sequence", "source": start_name, "target": first_task})
-        for lane in lanes.values():
-            lt = lane["tasks"]
-            for j in range(len(lt) - 1):
-                flows.append({"type": "Sequence", "source": lt[j]["name"], "target": lt[j+1]["name"]})
-            if lt:
-                flows.append({"type": "Sequence", "source": lt[-1]["name"], "target": gw["name"]})
+    # Get ordered task names (excluding gateway branch tasks that come from gateway definition)
+    gateway_tasks = set(gw.get("yes_branch", []) + gw.get("no_branch", []))
+    sequential_tasks = [t for t in all_tasks if t["name"] not in gateway_tasks]
+    
+    # Start -> first sequential task
+    if sequential_tasks:
+        flows.append({"type": "Sequence", "source": start_name, "target": sequential_tasks[0]["name"]})
+        
+        # Connect sequential tasks
+        for j in range(len(sequential_tasks) - 1):
+            flows.append({
+                "type": "Sequence", 
+                "source": sequential_tasks[j]["name"], 
+                "target": sequential_tasks[j+1]["name"]
+            })
+        
+        # Last sequential task -> gateway
+        flows.append({"type": "Sequence", "source": sequential_tasks[-1]["name"], "target": gw["name"]})
     else:
         flows.append({"type": "Sequence", "source": start_name, "target": gw["name"]})
 
-    for branch_key in ["yes_branch", "no_branch"]:
-        branch = gw.get(branch_key, [])
-        if branch:
-            flows.append({"type": "Sequence", "source": gw["name"], "target": branch[0]})
-            for j in range(len(branch) - 1):
-                flows.append({"type": "Sequence", "source": branch[j], "target": branch[j+1]})
-            flows.append({"type": "Sequence", "source": branch[-1], "target": end_name})
+    # Gateway -> yes branch
+    yes_branch = gw.get("yes_branch", [])
+    if yes_branch:
+        flows.append({"type": "Sequence", "source": gw["name"], "target": yes_branch[0]})
+        for j in range(len(yes_branch) - 1):
+            flows.append({"type": "Sequence", "source": yes_branch[j], "target": yes_branch[j+1]})
+        flows.append({"type": "Sequence", "source": yes_branch[-1], "target": end_name})
 
-    branch_task_names = {t["name"] for t in tasks}
-    for gw in gateways:
-        for t_name in gw.get("yes_branch", []) + gw.get("no_branch", []):
-            if t_name not in branch_task_names:
-                t_type = _infer_task_type(t_name)
-                lanes["Company"]["tasks"].append({"name": t_name, "type": t_type, "assignee": "Company"})
-                tasks.append({"name": t_name, "type": t_type, "assignee": "Company"})
-                branch_task_names.add(t_name)
-
-    for pool_name in pool_names:
-        pool_lanes = [lanes[ln] for ln in lanes if ln.lower() == pool_name.lower() or pool_name == "Company"]
-        if pool_lanes:
-            pools[pool_name] = {"name": pool_name, "lanes": pool_lanes}
-
-    if not pools:
-        pools["Company"] = {"name": "Company", "lanes": [lanes.get("Company", {"name": "Company", "tasks": []})]}
+    # Gateway -> no branch
+    no_branch = gw.get("no_branch", [])
+    if no_branch:
+        flows.append({"type": "Sequence", "source": gw["name"], "target": no_branch[0]})
+        for j in range(len(no_branch) - 1):
+            flows.append({"type": "Sequence", "source": no_branch[j], "target": no_branch[j+1]})
+        flows.append({"type": "Sequence", "source": no_branch[-1], "target": end_name})
 
     return {
         "title": title,
@@ -327,7 +386,7 @@ def _regex_translate(input_text: str) -> dict[str, Any]:
         "gateways": gateways,
         "events": [{"type": "Start", "name": start_name}, {"type": "End", "name": end_name}],
         "flows": flows,
-        "message_flows": message_flows,
+        "message_flows": [],
         "message_events": [],
-        "_colors": colors,
+        "_colors": {},
     }
