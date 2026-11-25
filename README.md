@@ -1,56 +1,29 @@
-# AI-Augmented BPMN 2.0 Engine
+# AI BPMN Generator
 
-A powerful AI-driven engine that transforms natural language process descriptions into fully validated, analyzed, and exportable BPMN 2.0 diagrams using a 4-layer intelligent pipeline.
+Turns a process description written in plain English into a BPMN 2.0 model: pools, lanes, tasks, gateways and flows. The engine validates the model, checks it for Lean waste, draws it as an SVG diagram and exports standard BPMN 2.0 XML.
 
-![BPMN](https://img.shields.io/badge/BPMN-2.0-blue)
-![Python](https://img.shields.io/badge/Python-3.11+-green)
-![License](https://img.shields.io/badge/License-MIT-yellow)
+I built it to explore how a language model can take over the first draft of process modelling, while classic rule-based checks keep the result correct.
 
-## Overview
+## How it works
 
-The AI BPMN Generator leverages artificial intelligence to democratize business process modeling. Users describe their processes in plain English, and the engine automatically generates professional BPMN 2.0 diagrams with validation, analysis, and export capabilities.
+The engine runs a four-step pipeline:
 
-## Features
+| Step | Module | What it does |
+|------|--------|--------------|
+| 1. Translate | `translator.py` | Sends the description to Claude and gets a structured BPMN model back. Without an API key, a simple rule-based parser builds a basic model so the app still runs. |
+| 2. Add context | `api_context.py` | Detects the process domain (logistics, finance, HR and others) and adds domain notes to the model. The context values are simulated demo data, not live API calls. |
+| 3. Validate and analyse | `validator.py`, `analyzer.py` | Checks the BPMN structure (one start event, at least one end event, valid flows and gateway types) and runs a rule-based Lean waste analysis on the process graph: waiting points, over-processing and manual work, with a health score and recommendations. |
+| 4. Render and export | `renderer.py`, `exporter.py` | Lays out the diagram with orthogonal routing, draws it as SVG and exports BPMN 2.0 XML. |
 
-- **Natural Language to BPMN**: Convert process descriptions into structured BPMN 2.0 diagrams
-- **AI-Powered Translation**: Uses Claude AI for intelligent process modeling
-- **Schema Validation**: Ensures BPMN 2.0 compliance
-- **Process Health Analysis**: ML-based bottleneck and waste detection
-- **SVG Rendering**: Visual diagram generation
-- **XML Export**: Standard BPMN 2.0 XML output
-
-## Architecture
-
-The engine implements a 4-layer pipeline (ABPMS Manifesto):
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│  Layer 4 — Engine    │ Render SVG + Export BPMN 2.0 XML    │
-├─────────────────────────────────────────────────────────────┤
-│  Layer 3 — ML        │ Graph-theoretic Lean Muda audit     │
-├─────────────────────────────────────────────────────────────┤
-│  Layer 2 — APIs      │ Enrich with real-world context       │
-├─────────────────────────────────────────────────────────────┤
-│  Layer 1 — LLM       │ Translate natural language → BPMN   │
-└─────────────────────────────────────────────────────────────┘
-```
-
-## Installation
+## Run it
 
 ```bash
-# Clone the repository
 git clone https://github.com/SamsonFHNW/ai_bpmn_generator_project.git
 cd ai_bpmn_generator_project
-
-# Create virtual environment (optional but recommended)
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
-# Install dependencies
+python -m venv .venv
+source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
-
-## Configuration
 
 Create a `.env` file in the project root:
 
@@ -59,102 +32,67 @@ ANTHROPIC_API_KEY=your_api_key_here
 EXPORT_PATH=bpmn_exports
 ```
 
-Get your API key from [Anthropic](https://www.anthropic.com/).
-
-## Usage
-
-### Running the Web Application
+Then start the web app (NiceGUI):
 
 ```bash
 python app.py
 ```
 
-The application will start on `http://localhost:8000`. Open the URL in your browser to access the interactive BPMN generator.
+Open http://localhost:8000, describe a process and generate the diagram.
 
-### Using the Pipeline Programmatically
+You can also call the pipeline from Python:
 
 ```python
 from app import run_pipeline
 
-# Describe your process in natural language
-input_text = "A customer places an order, receives confirmation, 
-              then the order is processed and shipped."
-
-# Execute the full pipeline
-result = run_pipeline(input_text)
-
-print(f"Validation: {result['validation_ok']}")
-print(f"Health Report: {result['health_report']}")
-print(f"XML File: {result['xml_file']}")
+result = run_pipeline(
+    "A customer places an order. The warehouse checks stock. "
+    "If the item is available, ship the order, else notify the customer."
+)
+print(result["validation_ok"])
+print(result["health_report"]["score"])
+print(result["xml_file"])
 ```
 
-## Project Structure
+## Tests
+
+```bash
+python -m pytest tests/ -v
+```
+
+54 tests cover translation, validation, Lean analysis, graph algorithms, layout and XML export. 53 run offline. One test needs `ANTHROPIC_API_KEY`, because only the language model can name pools from free text, and it is skipped without a key.
+
+## Project structure
 
 ```
 ai_bpmn_generator_project/
-├── app.py                  # Main application & pipeline
-├── config.py               # Configuration management
-├── requirements.txt        # Python dependencies
-├── README.md               # Project documentation
+├── app.py                 Web app and pipeline
+├── config.py              Settings from environment variables
+├── requirements.txt
 ├── bpmn_engine/
-│   ├── __init__.py         # Package exports
-│   ├── translator.py       # LLM → BPMN translation
-│   ├── validator.py        # BPMN 2.0 validation
-│   ├── analyzer.py         # ML process health analysis
-│   ├── renderer.py         # SVG diagram rendering
-│   ├── exporter.py         # BPMN XML export
-│   ├── api_context.py      # API context enrichment
-│   ├── README_BPMN.md      # Engine documentation
-│   └── data/
-│       ├── bpmn_schema.json    # BPMN 2.0 schema
-│       └── process_examples.json
-├── tests/
-│   └── test_flows.py       # Test suite
-└── bpmn_exports/           # Generated BPMN files
+│   ├── translator.py      Step 1: text to BPMN model (Claude, or rule-based fallback)
+│   ├── api_context.py     Step 2: domain detection and simulated context
+│   ├── validator.py       Step 3: BPMN structure checks
+│   ├── analyzer.py        Step 3: Lean waste analysis on the process graph
+│   ├── renderer.py        Step 4: SVG layout and drawing
+│   └── exporter.py        Step 4: BPMN 2.0 XML export
+├── data/
+│   ├── bpmn_schema.json   JSON schema for the BPMN model
+│   └── process_examples.json
+├── docs/                  Presentation slides
+└── tests/
+    └── test_flows.py
 ```
 
-## API Reference
+## Tech stack
 
-### Core Functions
+Python 3.11, NiceGUI, Anthropic Claude API, BPMN 2.0
 
-| Function | Description |
-|----------|-------------|
-| `translate_to_bpmn_schema()` | Convert natural language to BPMN JSON |
-| `validate_bpmn_structure()` | Validate BPMN 2.0 structure |
-| `analyze_process_health()` | ML-based process analysis |
-| `generate_bpmn_xml()` | Export to BPMN 2.0 XML |
-| `render_diagram()` | Generate SVG visualization |
-| `enrich_with_context()` | Add external API context |
+## Limitations
 
-## Testing
-
-```bash
-# Run tests
-python -m pytest tests/
-
-# Run specific test file
-python -m pytest tests/test_flows.py -v
-```
-
-## Tech Stack
-
-- **Frontend**: NiceGUI (Python UI framework)
-- **AI**: Anthropic Claude API
-- **BPMN**: BPMN 2.0 standard
-- **Python**: 3.11+
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-MIT License - see LICENSE file for details
+- The rule-based fallback parser only handles simple, linear descriptions. Complex processes need the language model.
+- The domain context in step 2 is simulated and meant to show where real data sources would plug in.
 
 ## Author
 
-Samson FHNW
-
----
-
-⭐ Star this repository if you find it useful!
+Samson Hadgu, BSc Business Information Technology student at FHNW

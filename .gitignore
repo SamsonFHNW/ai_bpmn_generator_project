@@ -37,3 +37,6 @@ htmlcov/
 
 # Local exports (can be regenerated)
 bpmn_exports/
+
+# Local AI tooling
+.claude/

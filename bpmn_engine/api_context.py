@@ -336,7 +336,8 @@ _REGISTRY: dict[str, list[APIContextProvider]] = {
     "healthcare": [MarketTrendProvider(), RiskProvider()],
     "manufacturing": [MarketTrendProvider(), IndustryBenchmarkProvider(), RiskProvider()],
     "retail": [MarketTrendProvider(), IndustryBenchmarkProvider(), RiskProvider()],
-    "generic": [MarketTrendProvider()],
+    # Unknown domains get no context, so generic processes stay uncluttered.
+    "generic": [],
 }
 
 

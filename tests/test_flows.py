@@ -18,6 +18,7 @@ from bpmn_engine.analyzer    import analyze_process_health, ProcessGraph
 from bpmn_engine.exporter    import generate_bpmn_xml
 from bpmn_engine.renderer    import render_diagram, BPMNLayout, _POOL_W
 from bpmn_engine.api_context import enrich_with_context, _detect_process_type
+import config
 
 
 class TestTranslator(unittest.TestCase):
@@ -206,6 +207,7 @@ class TestFullPipeline(unittest.TestCase):
         xml  = generate_bpmn_xml(bpmn)
         self.assertIn("bpmn:process", xml)
 
+    @unittest.skipUnless(config.ANTHROPIC_API_KEY, "needs ANTHROPIC_API_KEY: named pools come from the LLM layer")
     def test_multi_warehouse_distribution(self):
         text = (
             "A company has two warehouses, one in amsterdam, the other in hamburg, that store different products. "
